@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { config } from "./config";
+import { oauthConfig as config } from "./config";
 import { decrypt, encrypt, hash, random } from "./crypto";
 import type { DB } from "./db";
 import { ApiError, request } from "./http";

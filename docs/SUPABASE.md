@@ -65,6 +65,21 @@ Substitua a URL provisória no painel Mercado Livre e configure a mesma em `ML_R
 
 Verifique `/api/status` autenticado e execute `POST /api/sync` com Bearer `ADMIN_SECRET`. Não coloque segredos na URL.
 
+## Diagnosticar falha antes de abrir o Mercado Livre
+
+Se `/api/oauth/start` retornar `OAUTH_START_FAILED`, o erro ocorreu na preparação do fluxo no Next.js. O início do fluxo não exige que ClickUp e cron já estejam configurados. O endpoint retorna `cause`, `action` e, para configurações inválidas, `issues` com **nomes** de variáveis e `missing`/`invalid`; os valores não são retornados. Os logs da Vercel registram o mesmo diagnóstico pelo evento `oauth_start_failed`, sem segredos ou corpo de erros externos.
+
+Confira as variáveis na Vercel em **Settings → Environment Variables → Production** e faça novo deploy após corrigi-las. Configurar variáveis no Codex ou no Supabase não as configura na Vercel.
+
+- `CONFIG_OAUTH_INVALID`: verifique os campos indicados em `issues`. `ADMIN_SECRET` precisa de pelo menos 32 caracteres; `TOKEN_ENCRYPTION_KEY` deve ser uma chave de 32 bytes em base64 (`openssl rand -base64 32`). ML client ID, client secret e redirect URI também são necessários.
+- `CONFIG_REDIRECT_URI_INVALID`: use o caminho exato `/api/oauth/callback`, sem query ou fragmento. Para o domínio publicado nesta instalação: `https://meu-app-ml-pv-rosy.vercel.app/api/oauth/callback`.
+- `CONFIG_SUPABASE_INVALID`: verifique a URL do projeto e a chave secreta indicadas. A chave publicável não pode substituir `SUPABASE_SECRET_KEY`.
+- `SUPABASE_HTTP_401` / `SUPABASE_HTTP_403`: confira a chave de servidor e a permissão `service_role` da função RPC.
+- `SUPABASE_HTTP_404`: confira o projeto selecionado, Data API habilitada e instalação de `supabase/install.sql`.
+- `SUPABASE_NETWORK_ERROR`: confira o domínio e a conectividade HTTPS com o Supabase.
+
+Com a configuração válida, o endpoint pede HTTP Basic (`admin` e `ADMIN_SECRET`) e só depois grava o estado OAuth e redireciona ao Mercado Livre. A autorização e a troca do código ainda exigem que o callback esteja cadastrado na aplicação Mercado Livre.
+
 ## 4. Cron de 15 minutos pelo Supabase
 
 Após instalar a estrutura, publicar o Next.js e conectar o vendedor:

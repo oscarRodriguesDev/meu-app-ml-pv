@@ -98,6 +98,8 @@ Em uma atualização da versão antiga com conexão PostgreSQL de sessão, desat
 
 Admin aceita HTTP Basic `admin:ADMIN_SECRET` ou Bearer `ADMIN_SECRET`. Não passe segredos na URL. Falhas de sincronização retornam 503 com código sanitizado; concorrência retorna 200/skipped. Monitoramento funcional deve verificar `/api/status`, não apenas `/api/health`.
 
+Para `OAUTH_START_FAILED`, consulte `cause`, `action` e `issues` na resposta e o evento `oauth_start_failed` nos logs da Vercel. `issues` contém apenas nomes de variáveis e sua condição, sem valores. O início do OAuth valida somente as configurações necessárias a esse fluxo; ClickUp e cron são validados na sincronização. Veja [o diagnóstico de configuração](docs/SUPABASE.md#diagnosticar-falha-antes-de-abrir-o-mercado-livre).
+
 `ML_NOT_CONNECTED` e `ML_REAUTH_REQUIRED` pedem conexão/reconexão. `SUPABASE_HTTP_404` geralmente indica instalação SQL ou cache da Data API pendente; `supabase/install.sql` notifica a recarga do schema. 401/403 pedem conferir chave, permissões e configuração da API. `SYNC_LOCK_LOST` interrompe gravações de uma execução sem bloqueio válido.
 
 Para `CLICKUP_CREATE_UNCERTAIN`, aguarde outro ciclo e procure a marca, inclusive em tarefas fechadas/arquivadas. Se tiver sido movida, restaure a presença na lista. Somente após confirmar que nenhuma tarefa foi criada, com o cron desativado e nenhuma execução ativa, um operador pode remover a intenção `task_id IS NULL AND creation_uncertain=true` da devolução correspondente. Não remova linhas em caso de dúvida.
