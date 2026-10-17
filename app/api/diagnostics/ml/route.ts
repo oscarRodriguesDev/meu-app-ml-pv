@@ -15,9 +15,14 @@ export async function GET(req: Request) {
     const result = await withLock(async db => {
       const seller = await account(db);
       const from = seller.checkpoint ? new Date(new Date(seller.checkpoint).getTime() - 15 * 60000) : new Date(c.ML_SYNC_FROM);
-      return diagnoseClaimsSearch(mlClient(db), seller.seller_id, from, new Date());
+      return diagnoseClaimsSearch(mlClient(db, true), seller.seller_id, from, new Date());
     });
-    console.info(JSON.stringify({ event: "ml_diagnostics", ...result }));
+    // Validation text is available only in the authenticated response, never logs.
+    const checks = result.checks.map(({ check, ok, ...details }) => {
+      const { validationMessage: _private, ...safe } = details as typeof details & { validationMessage?: string };
+      return { check, ok, ...safe };
+    });
+    console.info(JSON.stringify({ event: "ml_diagnostics", status: result.status, checks }));
     return Response.json(result, { status: result.status === "ok" ? 200 : 503, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof BusyError) return Response.json({ status: "skipped", reason: "SYNC_BUSY" });

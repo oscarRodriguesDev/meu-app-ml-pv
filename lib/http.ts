@@ -4,11 +4,12 @@ if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy
   setGlobalDispatcher(new EnvHttpProxyAgent());
 }
 export class ApiError extends Error {
+  declare readonly validationMessage?: string;
   constructor(public service: string, public status: number, public details?: MLFailureDetails) { super(`${service}_HTTP_${status}`); }
 }
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // Only GET/PUT are retryable. OAuth and task creation must never be blindly replayed.
-export async function request(service: string, url: string, init: RequestInit = {}) {
+export async function request(service: string, url: string, init: RequestInit = {}, diagnostic = false) {
   const retryable = !init.method || ["GET", "PUT"].includes(init.method);
   for (let attempt = 0; ; attempt++) {
     let response: Response;
@@ -25,9 +26,15 @@ export async function request(service: string, url: string, init: RequestInit = 
       continue;
     }
     if (!response.ok) {
-      const details = service === "ML" ? await mlFailureDetails(url, response) : undefined;
+      let validationMessage: string | undefined;
+      const authorization = new Headers(init.headers).get("authorization");
+      const token = authorization?.replace(/^Bearer\s+/i, "");
+      const details = service === "ML" ? await mlFailureDetails(url, response,
+        diagnostic ? message => { validationMessage = message; } : undefined, token ? [token] : []) : undefined;
       if (service !== "ML") await response.body?.cancel();
-      throw new ApiError(service, response.status, details);
+      const error = new ApiError(service, response.status, details);
+      if (validationMessage) Object.defineProperty(error, "validationMessage", { value: validationMessage, enumerable: false });
+      throw error;
     }
     try { return await response.json() as unknown; }
     catch { throw new Error(`${service}_INVALID_JSON`); }

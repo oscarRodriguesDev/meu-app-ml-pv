@@ -93,7 +93,7 @@ Em uma atualização da versão antiga com conexão PostgreSQL de sessão, desat
 | `GET /api/oauth/start` | Admin | Inicia OAuth/PKCE. |
 | `GET /api/oauth/callback` | Estado + cookie | Retorno OAuth. |
 | `GET /api/status` | Admin | Conexão, últimas 20 execuções e intenções incertas, sem tokens. |
-| `GET /api/diagnostics/ml` | Admin | Três consultas de verificação de filtros, datas e ordenação, sem criar tarefas ou avançar o checkpoint. |
+| `GET /api/diagnostics/ml` | Admin | Verificação da identidade da conta, filtros, datas e ordenação, sem criar tarefas ou avançar o checkpoint. |
 | `POST /api/sync` | Admin | Sincronização manual. |
 | `GET /api/cron/sync` | Bearer `CRON_SECRET` | Sincronização agendada. |
 
@@ -103,7 +103,7 @@ Para `OAUTH_START_FAILED`, consulte `cause`, `action` e `issues` na resposta e o
 
 Para `ML_HTTP_400`, a resposta e o log `sync_failed` incluem a operação (`claims_search`, `claim_detail` ou `claim_returns`) e, quando reconhecida, uma categoria fixa como `date_range`, `seller_filter`, `sort` ou `pagination`. Mensagens brutas, IDs de recursos e parâmetros da URL não são registrados. O corpo de erro do Mercado Livre é lido com limite de 8 KB apenas para classificar a falha e é descartado. A busca envia milissegundos e offset UTC explícito (`+00:00`), preservando o período completo e codificando o sinal `+` na query.
 
-Abra `/api/diagnostics/ml` no navegador e autentique como administrador para testar, separadamente, filtro do vendedor, intervalo de datas e ordenação/paginação. O diagnóstico pode renovar o token sob o mesmo bloqueio, mas não cria tarefas, não altera o checkpoint e não retorna dados de compradores. Se todas as verificações passarem, execute novamente a sincronização; uma falha em consulta de detalhes/devoluções aparecerá com sua própria operação.
+Abra `/api/diagnostics/ml` no navegador e autentique como administrador para verificar a identidade do token e testar, separadamente, filtro do vendedor, estados aberto/fechado, intervalo de datas e ordenação/paginação. Em erros 400 da busca, `validationMessage` mostra uma mensagem limitada com valores da consulta, números, URLs e credenciais ocultos; esse campo aparece somente na resposta autenticada e não entra nos logs. O diagnóstico pode renovar o token sob o mesmo bloqueio, mas não cria tarefas, não altera o checkpoint e não retorna dados de compradores. Se todas as verificações passarem, execute novamente a sincronização; uma falha em consulta de detalhes/devoluções aparecerá com sua própria operação.
 
 `ML_NOT_CONNECTED` e `ML_REAUTH_REQUIRED` pedem conexão/reconexão. `SUPABASE_HTTP_404` geralmente indica instalação SQL ou cache da Data API pendente; `supabase/install.sql` notifica a recarga do schema. 401/403 pedem conferir chave, permissões e configuração da API. `SYNC_LOCK_LOST` interrompe gravações de uma execução sem bloqueio válido.
 

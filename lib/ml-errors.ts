@@ -1,11 +1,11 @@
 export type MLFailureDetails = {
   operation: "claims_search" | "claim_detail" | "claim_returns" | "mercado_api";
-  upstreamCode?: "bad_request" | "invalid_request" | "validation_error" | "invalid_parameter" | "invalid_query" | "forbidden" | "not_found" | "unauthorized";
+  upstreamCode?: "bad_request" | "invalid_request" | "validation_error" | "invalid_parameter" | "invalid_query" | "invalid_params" | "forbidden" | "not_found" | "unauthorized";
   reason?: "date_range" | "seller_filter" | "sort" | "pagination" | "permissions" | "query_parameters" | "return_not_available";
 };
 
 /** Never retain an upstream message, query, resource ID, token or response body. */
-export async function mlFailureDetails(url: string, response: Response): Promise<MLFailureDetails> {
+export async function mlFailureDetails(url: string, response: Response, onValidation?: (message: string) => void, sensitiveValues: string[] = []): Promise<MLFailureDetails> {
   const path = new URL(url).pathname;
   const result: MLFailureDetails = { operation: path === "/post-purchase/v1/claims/search" ? "claims_search"
     : /^\/post-purchase\/v2\/claims\/\d+\/returns$/.test(path) ? "claim_returns"
@@ -28,7 +28,7 @@ export async function mlFailureDetails(url: string, response: Response): Promise
     const root = body as Record<string, unknown>;
     const entries = [root, ...(Array.isArray(root.cause) ? root.cause.slice(0, 10) : [])];
     const messages: string[] = [];
-    const known = new Set(["bad_request", "invalid_request", "validation_error", "invalid_parameter", "invalid_query", "forbidden", "not_found", "unauthorized"]);
+    const known = new Set(["bad_request", "invalid_request", "validation_error", "invalid_parameter", "invalid_query", "invalid_params", "forbidden", "not_found", "unauthorized"]);
     for (const entry of entries) {
       if (!entry || typeof entry !== "object") continue;
       const value = entry as Record<string, unknown>;
@@ -38,6 +38,18 @@ export async function mlFailureDetails(url: string, response: Response): Promise
       if (typeof value.message === "string") messages.push(value.message);
     }
     const text = messages.join(" ");
+    // Only the administrator's explicit diagnostic request receives validation text.
+    // Never retain error bodies or include this text in normal sync logs.
+    if (response.status === 400 && result.operation === "claims_search" && onValidation) {
+      let safe = text;
+      for (const value of sensitiveValues) { if (value) safe = safe.split(value).join("[oculto]"); }
+      const parsed = new URL(url);
+      for (const value of [...parsed.searchParams.values()].sort((a, b) => b.length - a.length)) {
+        if (value.length >= 3) safe = safe.split(value).join("[oculto]");
+      }
+      safe = safe.replace(/https?:\/\/\S+|[\w.+-]+@[\w.-]+|\b(?:APP_USR|TEST|Bearer|access_token|refresh_token|client_secret)\b[\s:=]+[\w.\/-]+|\b(?:APP_USR|TEST)-[\w-]+|\b[A-Za-z0-9_+/=-]{32,}\b|\d+/gi, "[oculto]");
+      onValidation(safe.slice(0, 1000));
+    }
     // Classify into fixed labels only. Unrecognized text is deliberately discarded.
     if (/\b(date|dates|timestamp|timezone|range|fecha|milliseconds|milissegundos)\b/i.test(text)) result.reason = "date_range";
     else if (/players\.(user_id|role)|\b(seller|respondent|complainant)\b/i.test(text)) result.reason = "seller_filter";

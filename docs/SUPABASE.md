@@ -84,15 +84,17 @@ Com a configuração válida, o endpoint pede HTTP Basic (`admin` e `ADMIN_SECRE
 
 Esse código significa que o Mercado Livre recusou uma consulta HTTP com status 400. O código isolado não revela qual consulta ou parâmetro foi rejeitado. A sincronização agora preserva essa informação mesmo quando a falha ocorre em uma devolução individual.
 
-Acesse [o diagnóstico do aplicativo publicado](https://meu-app-ml-pv-rosy.vercel.app/api/diagnostics/ml), usando usuário `admin` e `ADMIN_SECRET` como senha. São feitas três consultas limitadas, sem criar tarefas nem avançar o checkpoint:
+Acesse [o diagnóstico do aplicativo publicado](https://meu-app-ml-pv-rosy.vercel.app/api/diagnostics/ml), usando usuário `admin` e `ADMIN_SECRET` como senha. São feitas até seis consultas de leitura, sem criar tarefas nem avançar o checkpoint:
 
-1. `seller_filter`: somente vendedor respondente e paginação mínima.
-2. `date_range`: adiciona o mesmo intervalo usado na sincronização.
-3. `sort_and_page`: usa os parâmetros completos, incluindo ordenação e tamanho de página.
+1. `account_identity`: valida a identidade do token sem retornar o perfil.
+2. `seller_filter`: somente vendedor respondente e paginação mínima.
+3. `seller_opened` e `seller_closed`: adicionam cada estado separadamente.
+4. `date_range`: adiciona o mesmo intervalo usado na sincronização.
+5. `sort_and_page`: usa os parâmetros completos, incluindo ordenação e tamanho de página.
 
-A resposta informa `ok` ou o código de erro de cada verificação. Os logs `sync_failed` passam a indicar `operation` e, quando reconhecida, uma categoria fixa `reason`, sem copiar mensagens brutas ou IDs do Mercado Livre. O formato das datas foi alinhado aos exemplos documentados: milissegundos e offset explícito (`.000+00:00`), com o `+` codificado na URL. O período e os filtros não são reduzidos automaticamente para contornar erros.
+A resposta informa `ok` ou o código de erro de cada verificação. Primeiro `account_identity` confirma que o token pertence ao vendedor salvo. Também são testados `seller_opened` e `seller_closed`, mantendo o vendedor como filtro. Em HTTP 400, copie também `validationMessage` da resposta autenticada: ela contém o texto de validação limitado e com dados sensíveis ocultos, sem entrar nos logs. Os logs `sync_failed` passam a indicar `operation` e, quando reconhecida, uma categoria fixa `reason`, sem copiar mensagens brutas ou IDs do Mercado Livre. O formato das datas foi alinhado aos exemplos documentados: milissegundos e offset explícito (`.000+00:00`), com o `+` codificado na URL. O período e os filtros não são reduzidos automaticamente para contornar erros.
 
-Se as três consultas passarem, tente a sincronização novamente e consulte a operação de qualquer falha posterior (`claim_detail` ou `claim_returns`). Não ative o agendamento antes de confirmar a primeira sincronização bem-sucedida.
+Se todas as verificações passarem, tente a sincronização novamente e consulte a operação de qualquer falha posterior (`claim_detail` ou `claim_returns`). Não ative o agendamento antes de confirmar a primeira sincronização bem-sucedida.
 
 ## 4. Cron de 15 minutos pelo Supabase
 

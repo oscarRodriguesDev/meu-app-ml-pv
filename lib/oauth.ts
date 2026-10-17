@@ -52,14 +52,14 @@ export async function accessToken(db: DB, force = false) {
   await saveTokens(db, next);
   return next.access_token;
 }
-export function mlClient(db: DB) {
+export function mlClient(db: DB, diagnostic = false) {
   return async (path: string) => {
     let token = await accessToken(db);
-    try { return await request("ML", `https://api.mercadolibre.com${path}`, { headers: { Authorization: `Bearer ${token}` } }); }
+    try { return await request("ML", `https://api.mercadolibre.com${path}`, { headers: { Authorization: `Bearer ${token}` } }, diagnostic); }
     catch (error) {
       if (!(error instanceof ApiError) || error.status !== 401) throw error;
       token = await accessToken(db, true);
-      return request("ML", `https://api.mercadolibre.com${path}`, { headers: { Authorization: `Bearer ${token}` } });
+      return request("ML", `https://api.mercadolibre.com${path}`, { headers: { Authorization: `Bearer ${token}` } }, diagnostic);
     }
   };
 }
