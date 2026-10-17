@@ -1,0 +1,22 @@
+[Unit]
+Description=Mercado Livre ClickUp Next.js
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ml-clickup
+WorkingDirectory=/opt/ml-clickup
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/ml-clickup.env
+ExecStart=/usr/bin/npm run start -- --hostname 127.0.0.1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ml-clickup/.next
+
+[Install]
+WantedBy=multi-user.target

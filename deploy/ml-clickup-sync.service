@@ -1,0 +1,12 @@
+[Unit]
+Description=Sincronizar devoluções com ClickUp
+After=network-online.target ml-clickup.service
+
+[Service]
+Type=oneshot
+User=ml-clickup
+EnvironmentFile=/etc/ml-clickup.env
+# O token é enviado por stdin/config do curl, sem entrar na URL ou no argumento do processo.
+ExecStart=/bin/sh /opt/ml-clickup/deploy/sync.sh
+NoNewPrivileges=true
+PrivateTmp=true

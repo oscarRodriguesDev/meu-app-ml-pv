@@ -1,0 +1,10 @@
+[Unit]
+Description=Executar sincronização a cada 15 minutos
+
+[Timer]
+OnCalendar=*-*-* *:00,15,30,45:00
+Persistent=true
+Unit=ml-clickup-sync.service
+
+[Install]
+WantedBy=timers.target

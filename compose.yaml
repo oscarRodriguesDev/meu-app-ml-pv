@@ -1,0 +1,19 @@
+# Apenas para desenvolvimento local. Use banco gerenciado com backups em produção.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ml_clickup
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d ml_clickup']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  pgdata:

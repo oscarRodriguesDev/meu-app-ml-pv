@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.env*
+!.env.example
+work/
+coverage/
+*.tsbuildinfo
+
+# Certificados de conexão e chaves locais
+*.pem
+*.key
+*.crt
