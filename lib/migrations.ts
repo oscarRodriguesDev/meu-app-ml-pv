@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import type { DB } from "./db";
+import type { SQLDatabase as DB } from "./sql";
 
 async function registry(db: DB) {
   const { rows } = await db.query<{ private_registry: string | null; public_registry: string | null }>(

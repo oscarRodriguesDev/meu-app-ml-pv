@@ -6,12 +6,11 @@ import { ApiError, request } from "./http";
 const id = z.union([z.string().regex(/^\d+$/), z.number().int().safe().nonnegative().transform(String)]);
 export const tokenSchema = z.object({ access_token: z.string().min(1), refresh_token: z.string().min(1), expires_in: z.number().positive(), user_id: id });
 export type Tokens = z.infer<typeof tokenSchema>;
-type Account = { seller_id: string; tokens_encrypted: string; expires_at: Date; refresh_pending: boolean; checkpoint: Date | null };
-export async function account(db: DB): Promise<Account> { const row = (await db.query<Account>("SELECT * FROM ml_integration.ml_account WHERE singleton = true")).rows[0]; if (!row) throw new Error("ML_NOT_CONNECTED"); return row; }
+type Account = { seller_id: string; tokens_encrypted: string; expires_at: string; refresh_pending: boolean; checkpoint: string | null };
+export async function account(db: DB): Promise<Account> { const row = await db.call<Account | null>("account_get"); if (!row) throw new Error("ML_NOT_CONNECTED"); return row; }
 export async function beginOAuth(db: DB) {
   const c = config(); const state = random(); const browser = random(); const verifier = random();
-  await db.query("DELETE FROM ml_integration.oauth_states WHERE expires_at < now()");
-  await db.query("INSERT INTO ml_integration.oauth_states(state_hash, browser_hash, verifier_encrypted, expires_at) VALUES ($1,$2,$3,now()+interval '10 minutes')", [hash(state), hash(browser), encrypt(verifier, c.TOKEN_ENCRYPTION_KEY)]);
+  await db.call("oauth_begin", { state_hash: hash(state), browser_hash: hash(browser), verifier_encrypted: encrypt(verifier, c.TOKEN_ENCRYPTION_KEY) });
   const url = new URL("https://auth.mercadolivre.com.br/authorization");
   url.search = new URLSearchParams({ response_type: "code", client_id: c.ML_CLIENT_ID, redirect_uri: c.ML_REDIRECT_URI,
     state, code_challenge: hash(verifier), code_challenge_method: "S256" }).toString();
@@ -19,9 +18,9 @@ export async function beginOAuth(db: DB) {
 }
 export async function consumeState(db: DB, state: string, browser: string) {
   if (!state || !browser || state.length > 200 || browser.length > 200) throw new Error("OAUTH_STATE_INVALID");
-  const row = (await db.query<{ verifier_encrypted: string }>("DELETE FROM ml_integration.oauth_states WHERE state_hash=$1 AND browser_hash=$2 AND expires_at>now() RETURNING verifier_encrypted", [hash(state), hash(browser)])).rows[0];
-  if (!row) throw new Error("OAUTH_STATE_INVALID");
-  return decrypt<string>(row.verifier_encrypted, config().TOKEN_ENCRYPTION_KEY);
+  const value = await db.call<string | null>("oauth_consume", { state_hash: hash(state), browser_hash: hash(browser) });
+  if (!value) throw new Error("OAUTH_STATE_INVALID");
+  return decrypt<string>(value, config().TOKEN_ENCRYPTION_KEY);
 }
 async function tokenRequest(fields: Record<string, string>) {
   const c = config();
@@ -32,13 +31,12 @@ async function tokenRequest(fields: Record<string, string>) {
 }
 export async function saveTokens(db: DB, tokens: Tokens) {
   const c = config();
-  const old = (await db.query<{seller_id: string}>("SELECT seller_id FROM ml_integration.ml_account WHERE singleton=true")).rows[0];
+  const old = await db.call<Account | null>("account_get");
   if ((c.ML_SELLER_ID && tokens.user_id !== c.ML_SELLER_ID) || (old && old.seller_id !== tokens.user_id)) throw new Error("ML_SELLER_MISMATCH");
-  await db.query(`INSERT INTO ml_integration.ml_account(singleton,seller_id,tokens_encrypted,expires_at) VALUES(true,$1,$2,$3)
-    ON CONFLICT(singleton) DO UPDATE SET tokens_encrypted=excluded.tokens_encrypted,expires_at=excluded.expires_at,refresh_pending=false,updated_at=now()`,
-  [tokens.user_id, encrypt(tokens, c.TOKEN_ENCRYPTION_KEY), new Date(Date.now() + tokens.expires_in * 1000)]);
+  await db.call("account_save", { seller_id: tokens.user_id, tokens_encrypted: encrypt(tokens, c.TOKEN_ENCRYPTION_KEY), expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString() });
 }
 export async function finishOAuth(db: DB, code: string, verifier: string) {
+  await db.assertLease();
   const tokens = await tokenRequest({ grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: config().ML_REDIRECT_URI });
   await saveTokens(db, tokens);
 }
@@ -48,7 +46,8 @@ export async function accessToken(db: DB, force = false) {
   if (row.refresh_pending) throw new Error("ML_REAUTH_REQUIRED");
   const tokens = decrypt<Tokens>(row.tokens_encrypted, c.TOKEN_ENCRYPTION_KEY);
   if (!force && new Date(row.expires_at).getTime() > Date.now() + 120000) return tokens.access_token;
-  await db.query("UPDATE ml_integration.ml_account SET refresh_pending=true WHERE singleton=true");
+  await db.call("refresh_begin");
+  await db.assertLease();
   const next = await tokenRequest({ grant_type: "refresh_token", refresh_token: tokens.refresh_token });
   await saveTokens(db, next);
   return next.access_token;

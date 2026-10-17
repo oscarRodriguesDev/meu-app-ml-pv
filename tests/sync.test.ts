@@ -21,10 +21,13 @@ it("records intent before POST, stops ambiguous retries, and reconciles on a lat
   vi.mocked(clickup.create).mockRejectedValueOnce(new Error("CLICKUP_NETWORK_ERROR"));
   await expect(syncOne()).rejects.toThrow("NETWORK_ERROR"); await expect(syncOne()).rejects.toThrow("CREATE_UNCERTAIN");expect(clickup.create).toHaveBeenCalledTimes(1);
   tasks.push({id:"remote-created",name:marker("42","88")}); await syncOne();
-  expect((await store.db.query("SELECT task_id,creation_uncertain FROM ml_integration.return_tasks")).rows[0]).toEqual({task_id:"remote-created",creation_uncertain:false});
+  expect((await store.sql.query("SELECT task_id,creation_uncertain FROM ml_integration.return_tasks")).rows[0]).toEqual({task_id:"remote-created",creation_uncertain:false});
 });
 it("reconciles a task created before a failed local commit",async()=>{
-  let fail=true;const db: DB={query:async<T extends Record<string, unknown>>(sql:string,values?:unknown[])=>{if(sql.includes("ON CONFLICT(seller_id")&&fail){fail=false;throw new Error("DB_WRITE_FAILED");}return store.db.query<T>(sql,values);}};
+  let fail=true;const db: DB={ ...store.db, async call<T>(operation: import("../lib/db").Operation, payload?: import("../lib/db").Payload) {
+    if(operation==="mapping_save"&&fail){fail=false;throw new Error("DB_WRITE_FAILED");}
+    return store.db.call<T>(operation,payload);
+  }};
   await expect(upsertReturn(db,clickup,tasks,"42","901717874275","55",sampleReturn)).rejects.toThrow("DB_WRITE_FAILED");
   await syncOne();expect(clickup.create).toHaveBeenCalledTimes(1);
 });
@@ -40,12 +43,12 @@ it("runs end-to-end, retains checkpoints on failure and refreshes known returns"
   await saveTokens(store.db,{access_token:"test",refresh_token:"test",user_id:"42",expires_in:3600});
   const get=vi.fn(async(path:string)=>path.includes("/search?")?{paging:{offset:0,limit:50,total:1},data:[{id:55,type:"return"}]}:sampleReturn);
   expect(await synchronize(store.db,{get,clickup})).toEqual({status:"success",processed:1});
-  const before=(await store.db.query("SELECT checkpoint FROM ml_integration.ml_account")).rows[0].checkpoint;
+  const before=(await store.sql.query("SELECT checkpoint FROM ml_integration.ml_account")).rows[0].checkpoint;
   vi.mocked(clickup.update).mockRejectedValueOnce(new Error("CLICKUP_HTTP_500"));
   const getChanged=vi.fn(async(path:string)=>path.includes("/search?")?{paging:{offset:0,limit:50,total:0},data:[]}:{...sampleReturn,status:"delivered"});
   await expect(synchronize(store.db,{get:getChanged,clickup})).rejects.toThrow("500");
-  expect((await store.db.query("SELECT checkpoint FROM ml_integration.ml_account")).rows[0].checkpoint).toEqual(before);
+  expect((await store.sql.query("SELECT checkpoint FROM ml_integration.ml_account")).rows[0].checkpoint).toEqual(before);
   await synchronize(store.db,{get:getChanged,clickup});expect(clickup.create).toHaveBeenCalledTimes(1);
   expect(getChanged).toHaveBeenCalledWith("/post-purchase/v2/claims/55/returns");
-  expect((await store.db.query("SELECT status FROM ml_integration.sync_runs ORDER BY id")).rows.map(r=>r.status)).toEqual(["success","failed","success"]);
+  expect((await store.sql.query("SELECT status FROM ml_integration.sync_runs ORDER BY id")).rows.map(r=>r.status)).toEqual(["success","failed","success"]);
 });

@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from "pg";
-import { pool } from "../lib/db";
+import { pool } from "../lib/sql";
 import { applyMigrations } from "../lib/migrations";
 let client: PoolClient | undefined;
 let connectionPool: Pool | undefined;

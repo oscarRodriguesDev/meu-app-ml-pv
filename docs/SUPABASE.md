@@ -1,115 +1,111 @@
-# Configurar Supabase e hospedar o Next.js
+# Supabase por HTTPS: configurar as quatro chaves
 
-O Supabase fornece o PostgreSQL e pode executar o agendamento a cada 15 minutos. O aplicativo Next.js continua hospedado na Vercel ou em um servidor Node.js. Não é necessário usar Supabase Auth, `@supabase/supabase-js`, chave `anon` ou `service_role`.
+O aplicativo usa os nomes abaixo, conforme o painel de configuração:
 
-## 1. Criar ou selecionar o projeto
-
-No [painel Supabase](https://supabase.com/dashboard), escolha seu projeto (ou crie um na região próxima à hospedagem), anote a referência do projeto e guarde a senha do banco no gerenciador de segredos. Não publique essa senha no chat nem no GitHub.
-
-Abra **Connect → Session pooler** e copie a conexão PostgreSQL da **porta 5432**, semelhante a:
-
-```text
-postgresql://postgres.PROJECT_REF:SENHA_CODIFICADA@aws-0-REGIAO.pooler.supabase.com:5432/postgres
+```dotenv
+SUPABASE_URL=https://SEU_PROJETO.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_SECRET_KEY=sb_secret_...
+SUPABASE_JWKS_URL=https://SEU_PROJETO.supabase.co/auth/v1/.well-known/jwks.json
 ```
 
-Use exatamente o host e o usuário fornecidos pelo painel. Codifique caracteres reservados da senha na URL, ou use a string pronta fornecida pelo Supabase. Não use a conexão Transaction (porta 6543): o serviço depende de bloqueios de sessão. O código rejeita essa porta nos hosts do Supabase. Uma conexão direta ao banco também funciona se a rede da hospedagem suportar o endereço fornecido.
+A conexão de produção utiliza **URL + chave secreta**, via HTTPS/443. Não usa senha do PostgreSQL, `DATABASE_URL`, pooler ou Prisma. As chamadas vão para `/rest/v1/rpc/ml_service`, com a chave secreta no header `apikey`. Chaves novas `sb_secret_…` não são JWTs e não são colocadas em `Authorization: Bearer`. A chave legada `service_role` também é aceita.
 
-Defina essa conexão em `DATABASE_URL`, tanto no ambiente que aplicará as migrações quanto na hospedagem Next.js. Essa variável nunca usa o prefixo `NEXT_PUBLIC_`. Não confunda a URL PostgreSQL com `https://PROJECT_REF.supabase.co`, que é a URL da API do projeto e não é necessária ao aplicativo.
+A chave publicável é opcional e não acessa os dados da integração. A URL JWKS também é opcional, derivada do projeto quando ausente, e fica reservada para validação de JWTs caso Supabase Auth seja adotado no futuro. O serviço atual usa `ADMIN_SECRET` para administração, `CRON_SECRET` para o agendador e OAuth do Mercado Livre. Não há login do Supabase Auth nem uso artificial de JWKS.
 
-## 2. Certificado e acesso de rede
+## 1. Instalar a estrutura, uma vez
 
-As conexões ao Supabase verificam o certificado TLS e o hostname. Em **Database Settings / SSL configuration**, baixe o certificado CA do banco, caso necessário, e defina seu conteúdo PEM em `DATABASE_SSL_CA`. Essa variável aceita PEM multilinha ou `\n` literais. Não acrescente parâmetros `sslrootcert`, `sslcert` ou `sslkey` à URL quando usar essa variável.
+No projeto Supabase, abra **SQL Editor**, cole e execute todo o conteúdo de [supabase/install.sql](../supabase/install.sql) como proprietário do banco. O arquivo é transacional e pode ser reaplicado: verifica as versões e preserva dados existentes. Ele aplica as migrações 001, 002 e 003, incluindo a função RPC.
 
-Se não for necessário um CA específico no endpoint escolhido, a verificação usa as autoridades de confiança do Node.js. Não desabilite a validação TLS para resolver erros de certificado.
+As chaves da API não permitem criar essa estrutura pelo endpoint REST; portanto, essa instalação inicial precisa do SQL Editor (ou do comando opcional `db:migrate` para operadores que já tenham conexão PostgreSQL). Não há uma RPC de SQL arbitrário no serviço.
 
-Caso existam restrições de rede no Supabase, autorize o IP de saída do ambiente/hospedagem. Para aplicar migrações neste ambiente em nuvem, o host de conexão do Supabase também precisa ser permitido no acesso **TCP à porta 5432**; a lista de domínios HTTP não libera PostgreSQL. Não é preciso tornar o banco público sem restrições.
+As seis tabelas ficam no schema privado `ml_integration`, com RLS habilitada e acesso direto revogado às roles da API. A única entrada é `public.ml_service`, com operações fixas e `EXECUTE` somente para `service_role`, a role autorizada pela chave secreta. Não adicione `ml_integration` aos schemas expostos pela Data API e não libere a função para `anon` ou `authenticated`.
 
-## 3. Aplicar as tabelas
-
-No terminal do projeto com `DATABASE_URL` e, se necessário, `DATABASE_SSL_CA` disponíveis:
-
-```bash
-npm ci
-npm run db:migrate
-```
-
-Também é possível executar `db/001_init.sql` e depois `db/002_private_schema.sql` no SQL Editor do Supabase, dentro de uma única transação (`BEGIN;` antes dos dois conteúdos e `COMMIT;` depois). O comando npm é preferível porque controla a ordem, verifica versões já aplicadas e usa um bloqueio de migração. Não reaplique a migração 001 manualmente se a 002 já tiver sido aplicada.
-
-A migração 002 move os dados existentes de uma instalação anterior de `public` para **`ml_integration`**, sem apagar tokens ou vínculos. Todas as consultas do aplicativo usam explicitamente esse schema. O schema não deve ser adicionado aos schemas expostos pela Data API.
-
-As tabelas têm RLS habilitada, sem políticas para os clientes da API. O acesso de `PUBLIC`, `anon`, `authenticated` e `service_role` ao schema/tabelas é revogado. O aplicativo usa a conexão PostgreSQL do proprietário das tabelas (o usuário fornecido pelo painel), pelo backend. Não crie uma política pública para corrigir um problema de conexão.
-
-No SQL Editor, verifique:
+Verifique no SQL Editor:
 
 ```sql
 SELECT version FROM ml_integration.schema_migrations ORDER BY version;
--- Deve retornar 001 e 002.
+-- 001, 002, 003
 
-SELECT tablename, rowsecurity
-FROM pg_tables
-WHERE schemaname = 'ml_integration';
--- Cinco tabelas, todas com rowsecurity = true.
+SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='ml_integration';
+-- Seis tabelas com RLS habilitada.
 ```
 
-## 4. Publicar o aplicativo Next.js
+Mantenha a **Data API habilitada**, com o schema `public` exposto para alcançar a RPC. O instalador notifica a recarga de cache do PostgREST.
 
-Importe [oscarRodriguesDev/meu-app-ml-pv](https://github.com/oscarRodriguesDev/meu-app-ml-pv) na Vercel, usando Node.js 24 e o preset Next.js. Configure as variáveis de `.env.example` no ambiente **Production**. `DATABASE_URL` aponta para o Supabase. Os tokens já existentes neste ambiente não são copiados automaticamente para a Vercel.
+Ao atualizar uma instalação antiga, desative o cron, execute o instalador e publique o código HTTPS antes de reativar. O bloqueio anterior por sessão PostgreSQL e o novo bloqueio persistente não devem operar simultaneamente.
 
-Além das credenciais de API, configure `TOKEN_ENCRYPTION_KEY`, `ADMIN_SECRET`, `CRON_SECRET` e `ML_REDIRECT_URI`. Gere segredos distintos com os comandos indicados no README. Faça o build com `npm run build`. O `vercel.json` padrão não cria cron na Vercel: usaremos o Supabase como agendador, inclusive se o plano da Vercel não permitir cron a cada 15 minutos. Confirme o limite de duração das funções no seu plano; o endpoint solicita até 300 segundos. Executar o cron fora da Vercel não aumenta esse limite.
+## 2. Configurar os ambientes
 
-Depois do deploy, use seu domínio definitivo para:
+Cadastre as quatro variáveis no ambiente que executa o Next.js. Mantenha `SUPABASE_SECRET_KEY` como segredo exclusivo do servidor, sem prefixo `NEXT_PUBLIC_` e sem enviá-la ao navegador. Não copie valores reais para o GitHub ou para o chat.
 
-- **Iniciar autorização:** `https://SEU_DOMINIO/api/oauth/start`
-- **Redirect URI no Mercado Livre:** `https://SEU_DOMINIO/api/oauth/callback`
+Configure também as credenciais ML/ClickUp e `TOKEN_ENCRYPTION_KEY`, `ADMIN_SECRET`, `CRON_SECRET`, `ML_REDIRECT_URI`, conforme `.env.example`. Para desenvolvimento, `.env.local` é ignorado pelo Git. Para produção, use as variáveis Production da hospedagem. Valores salvos em um ambiente não são copiados automaticamente para outro.
 
-Cadastre o callback no painel Mercado Livre e em `ML_REDIRECT_URI`, habilite PKCE e complete a autorização pelo navegador. Esse callback é do **Next.js**, não do Supabase Auth. Não use `https://PROJECT_REF.supabase.co/auth/v1/callback`.
+Em ambientes com rede restrita, autorize o **domínio HTTPS do projeto Supabase**, como `SEU_PROJETO.supabase.co`, além das APIs Mercado Livre/ClickUp. Não é necessário acesso TCP ao host `db.…supabase.co` nem à porta 5432. Vincule a chave secreta ao destino HTTPS do projeto quando a plataforma usar regras de injeção de credenciais.
 
-## 5. Ativar o cron no Supabase
+Para verificar somente Supabase e instalação SQL, sem depender do OAuth já conectado:
 
-Somente depois de publicar, aplicar as migrações e conectar o Mercado Livre:
+```bash
+npm ci
+npm run supabase:check
+```
 
-1. Habilite **Cron (`pg_cron`)**, **`pg_net`** e **Vault** no painel de extensões/integrações do Supabase.
-2. No **Vault**, crie dois segredos com nomes exatos:
-   - `ml_clickup_app_url`: origem HTTPS do aplicativo, por exemplo `https://meu-app.vercel.app`, sem caminho.
-   - `ml_clickup_cron_secret`: o mesmo valor de `CRON_SECRET` configurado no Next.js.
-3. Execute o conteúdo de `supabase/schedule.sql` no SQL Editor como proprietário do banco. O script valida as configurações antes de agendar. O job `ml-clickup-sync` executa `*/15 * * * *`, enviando `Authorization: Bearer …` para `/api/cron/sync`. Reexecutar o script atualiza o mesmo job.
-4. Não habilite simultaneamente o cron da Vercel ou o timer systemd. Se houver proteção de acesso ao deploy, o Supabase precisa conseguir atingir esse endpoint; o serviço ainda verifica `CRON_SECRET`.
+O resultado esperado é `supabase: connected` e `schema: ready`; `mercadoLivreConnected` pode ser false antes do OAuth. O comando não imprime chaves ou tokens. Um 404 pede conferir a instalação da função e a recarga de cache. Um 401/403 pede conferir a chave secreta e as permissões da API.
 
-A URL e o segredo são lidos do Vault em cada execução. Ao trocar domínio ou rotacionar o segredo, atualize o Vault e a variável correspondente na hospedagem. Não grave o token como texto dentro do comando do job nem como parâmetro de URL.
+## 3. Hospedar e autorizar Mercado Livre
 
-Para confirmar o agendamento:
+Importe o repositório na Vercel com preset Next.js, Node.js 24 e build `npm run build`, ou use um servidor Node.js. O Supabase guarda os dados e executa o cron; não hospeda o servidor Next.js neste projeto.
+
+Depois do deploy, defina o domínio definitivo:
+
+- Início da autorização: `https://SEU_DOMINIO/api/oauth/start`
+- Redirect URI: `https://SEU_DOMINIO/api/oauth/callback`
+
+Substitua a URL provisória no painel Mercado Livre e configure a mesma em `ML_REDIRECT_URI`. Habilite PKCE e complete a autorização pelo navegador com usuário administrativo `admin` e senha `ADMIN_SECRET`. O callback é do Next.js, não `/auth/v1/callback` do Supabase. A URL completa de autorização é gerada a cada tentativa com estado e PKCE novos.
+
+Verifique `/api/status` autenticado e execute `POST /api/sync` com Bearer `ADMIN_SECRET`. Não coloque segredos na URL.
+
+## 4. Cron de 15 minutos pelo Supabase
+
+Após instalar a estrutura, publicar o Next.js e conectar o vendedor:
+
+1. Habilite **Cron (`pg_cron`)**, **`pg_net`** e **Vault** nas extensões/integrações do Supabase.
+2. No Vault, crie `ml_clickup_app_url` com a origem HTTPS do aplicativo (sem caminho) e `ml_clickup_cron_secret` com o mesmo valor de `CRON_SECRET` no Next.js.
+3. Execute [supabase/schedule.sql](../supabase/schedule.sql) no SQL Editor. O script valida os valores e agenda `ml-clickup-sync`, com `*/15 * * * *`. Reaplicar atualiza o mesmo job.
+4. Confirme que o endpoint pode ser alcançado por HTTPS a partir do Supabase. Se houver proteção de deploy, configure o acesso do cron; o endpoint ainda verifica seu Bearer.
+
+O job usa `net.http_get` com Bearer e timeout de 300 segundos. O domínio e segredo são lidos do Vault a cada execução; o comando do job não contém valores secretos. O `vercel.json` padrão não cria outro cron. Não habilite o timer systemd ou Vercel Cron simultaneamente. O limite da função na hospedagem continua valendo, mesmo com agendador externo.
+
+Verificação:
 
 ```sql
-SELECT jobid, jobname, schedule, active
-FROM cron.job WHERE jobname='ml-clickup-sync';
-
-SELECT jobid, status, start_time, end_time
-FROM cron.job_run_details
+SELECT jobid,jobname,schedule,active FROM cron.job WHERE jobname='ml-clickup-sync';
+SELECT jobid,status,start_time,end_time FROM cron.job_run_details
 WHERE jobid=(SELECT jobid FROM cron.job WHERE jobname='ml-clickup-sync')
 ORDER BY start_time DESC LIMIT 10;
-
-SELECT id, status_code, timed_out, error_msg, created
-FROM net._http_response ORDER BY created DESC LIMIT 10;
+SELECT id,status_code,timed_out,error_msg,created FROM net._http_response ORDER BY created DESC LIMIT 10;
 ```
 
-O sucesso de `cron.job_run_details` confirma o envio para a fila HTTP, não o sucesso da sincronização. Verifique também a resposta HTTP e `/api/status` autenticado. O endpoint retorna 200 para sucesso/execução já em andamento, 401 para segredo incorreto e 503 para falhas. A resposta deve chegar dentro do limite da função e do timeout HTTP de 300 segundos.
+Sucesso no histórico do cron confirma o envio à fila, não o sucesso da sincronização. Confira a resposta HTTP e `/api/status`: 200 para sucesso/skipped, 401 para segredo incorreto, 503 para falha. Monitore ausência de execuções e projetos Supabase pausados. Planeje retenção de `cron.job_run_details`; respostas HTTP são temporárias.
 
-O Supabase retém respostas HTTP por tempo limitado. Monitore falhas e dimensione o plano/banco para permanecer ativo: um projeto pausado não executará o cron. O histórico `cron.job_run_details` pode precisar de retenção própria conforme o volume.
-
-Para desativar:
+Para remover o cron:
 
 ```sql
 SELECT cron.unschedule('ml-clickup-sync');
 ```
 
-## Alternativas de agendamento
+Para usar Vercel Cron, desative esse job, copie `deploy/vercel-cron.example.json` para `vercel.json` e faça deploy em um plano que comporte 15 minutos. Para servidor próprio, use os arquivos systemd em `deploy/`.
 
-Para usar Vercel Cron em vez do Supabase, copie `deploy/vercel-cron.example.json` para `vercel.json`, faça novo deploy em um plano que permita 15 minutos e desative o job no Supabase. Para servidor próprio, use os arquivos systemd de `deploy/`. Escolha apenas um agendador.
+## Bloqueio e recuperação
 
-## Referências
+A RPC mantém um bloqueio com UUID de proprietário e validade de 120 segundos. Há renovação a cada 20 segundos e antes das mutações externas. As operações protegidas conferem o proprietário e a validade dentro da mesma transação da gravação. Se o processo morrer ou perder a conexão, uma execução seguinte pode adquirir o bloqueio após expirar; a execução antiga não pode salvar dados posteriormente.
 
-- [Conexões PostgreSQL e poolers](https://supabase.com/docs/guides/database/connecting-to-postgres)
-- [Schemas e dados](https://supabase.com/docs/guides/database/tables)
+Isso preserva a serialização da renovação de tokens e da sincronização por HTTPS, sem depender de sessão PostgreSQL. O bloqueio não transforma ClickUp e Supabase em uma transação distribuída: a intenção de criação é gravada antes do POST e uma criação ambígua é reconciliada pela marca, sem repetir automaticamente o POST. Veja os procedimentos operacionais no README.
+
+## Referências oficiais
+
+- [Chaves API e seu uso em headers](https://supabase.com/docs/guides/getting-started/api-keys)
+- [Funções SQL, permissões e search_path](https://supabase.com/docs/guides/database/functions)
 - [Cron](https://supabase.com/docs/guides/cron/quickstart)
-- [HTTP assíncrono com pg_net](https://supabase.com/docs/guides/database/extensions/pg_net)
-- [Agendamento com segredos no Vault](https://supabase.com/docs/guides/functions/schedule-functions)
+- [pg_net](https://supabase.com/docs/guides/database/extensions/pg_net)
+- [Agendamento com Vault](https://supabase.com/docs/guides/functions/schedule-functions)

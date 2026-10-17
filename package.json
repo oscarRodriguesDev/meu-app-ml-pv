@@ -9,7 +9,9 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "db:migrate": "node --env-file-if-exists=.env.local --import tsx scripts/migrate.ts"
+    "db:migrate": "node --env-file-if-exists=.env.local --import tsx scripts/migrate.ts",
+    "db:bundle": "node --import tsx scripts/bundle-sql.ts",
+    "supabase:check": "node --env-file-if-exists=.env.local --import tsx scripts/check-supabase.ts"
   },
   "repository": {
     "type": "git",

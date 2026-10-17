@@ -20,7 +20,7 @@ it("uses S256, binds state to the browser, and consumes state once", async () =>
 });
 it("rejects expired states", async () => {
   const start = await beginOAuth(store.db);
-  await store.db.query("UPDATE ml_integration.oauth_states SET expires_at=now()-interval '1 second'");
+  await store.sql.query("UPDATE ml_integration.oauth_states SET expires_at=now()-interval '1 second'");
   await expect(consumeState(store.db, new URL(start.url).searchParams.get("state")!, start.browser)).rejects.toThrow("STATE_INVALID");
 });
 it("exchanges the code with verifier and exact redirect, encrypting tokens at rest", async () => {
