@@ -1,5 +1,5 @@
-CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS ml_account (
+CREATE TABLE IF NOT EXISTS public.schema_migrations (version text PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS public.ml_account (
   singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
   seller_id text NOT NULL,
   tokens_encrypted text NOT NULL,
@@ -8,13 +8,13 @@ CREATE TABLE IF NOT EXISTS ml_account (
   checkpoint timestamptz,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS oauth_states (
+CREATE TABLE IF NOT EXISTS public.oauth_states (
   state_hash text PRIMARY KEY,
   browser_hash text NOT NULL,
   verifier_encrypted text NOT NULL,
   expires_at timestamptz NOT NULL
 );
-CREATE TABLE IF NOT EXISTS return_tasks (
+CREATE TABLE IF NOT EXISTS public.return_tasks (
   seller_id text NOT NULL,
   list_id text NOT NULL,
   return_id text NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS return_tasks (
   PRIMARY KEY (seller_id, list_id, return_id),
   UNIQUE (list_id, task_id)
 );
-CREATE TABLE IF NOT EXISTS sync_runs (
+CREATE TABLE IF NOT EXISTS public.sync_runs (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   started_at timestamptz NOT NULL DEFAULT now(),
   finished_at timestamptz,
@@ -34,4 +34,4 @@ CREATE TABLE IF NOT EXISTS sync_runs (
   processed integer NOT NULL DEFAULT 0,
   error_code text
 );
-INSERT INTO schema_migrations(version) VALUES ('001') ON CONFLICT DO NOTHING;
+INSERT INTO public.schema_migrations(version) VALUES ('001') ON CONFLICT DO NOTHING;

@@ -18,5 +18,6 @@ it("keeps local PostgreSQL usable without TLS and rejects missing connection str
 });
 it("rejects insecure TLS settings and conflicting certificate sources", () => {
   expect(() => databaseConfig({ DATABASE_URL: `${session}?sslmode=no-verify` })).toThrow("TLS_REQUIRED");
+  expect(() => databaseConfig({ DATABASE_URL: `${session}?ssl=false` })).toThrow("TLS_REQUIRED");
   expect(() => databaseConfig({ DATABASE_URL: `${session}?sslrootcert=cert.pem`, DATABASE_SSL_CA: "pem" })).toThrow("SSL_CONFLICT");
 });

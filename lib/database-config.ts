@@ -16,13 +16,14 @@ export function databaseConfig(env: Record<string, string | undefined> = process
     throw new Error("CONFIG_DATABASE_SSL_CONFLICT");
   }
   if (supabase || ca) {
-    if (["disable", "no-verify", "allow", "prefer"].includes(url.searchParams.get("sslmode") ?? "")) {
+    if (["disable", "no-verify", "allow", "prefer"].includes(url.searchParams.get("sslmode") ?? "") || url.searchParams.get("ssl") === "false") {
       throw new Error("CONFIG_DATABASE_TLS_REQUIRED");
     }
     // pg-connection-string would overwrite an explicit ssl object if sslmode is left in the URL.
     // Keep path-based certificates when configured; otherwise always verify the server identity.
     if (!["sslrootcert", "sslcert", "sslkey"].some(key => url.searchParams.has(key))) {
       url.searchParams.delete("sslmode");
+      url.searchParams.delete("ssl");
       return {
         connectionString: url.toString(),
         ssl: { rejectUnauthorized: true, ...(ca ? { ca } : {}) },
