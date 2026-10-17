@@ -5,6 +5,7 @@ import { config } from "../lib/config";
 import { GET as start } from "../app/api/oauth/start/route";
 import { GET as cron } from "../app/api/cron/sync/route";
 import { POST as manual } from "../app/api/sync/route";
+import { GET as mlDiagnostics } from "../app/api/diagnostics/ml/route";
 import { GET as status } from "../app/api/status/route";
 import { NextRequest } from "next/server";
 import { testEnv } from "./setup";
@@ -20,6 +21,7 @@ it("protects all administrative and scheduled routes before touching the databas
  expect((await cron(new Request("https://app.example/api/cron/sync"))).status).toBe(401);
  expect((await manual(new Request("https://app.example/api/sync",{method:"POST"}))).status).toBe(401);
  expect((await status(new Request("https://app.example/api/status"))).status).toBe(401);
+ expect((await mlDiagnostics(new Request("https://app.example/api/diagnostics/ml"))).status).toBe(401);
 });
 it("never replays creation or OAuth POST requests",async()=>{
  const fetchMock=vi.fn().mockResolvedValue(new Response("secret upstream error",{status:503}));vi.stubGlobal("fetch",fetchMock);

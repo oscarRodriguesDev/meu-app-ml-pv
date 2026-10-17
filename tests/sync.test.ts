@@ -4,6 +4,7 @@ import { database, sampleReturn, testEnv } from "./setup";
 import { upsertReturn, synchronize } from "../lib/sync";
 import { marker, type Clickup, type Task } from "../lib/clickup";
 import { saveTokens } from "../lib/oauth";
+import { ApiError } from "../lib/http";
 let store: Awaited<ReturnType<typeof database>>; let clickup: Clickup; let tasks: Task[];
 beforeEach(async()=>{testEnv();store=await database();tasks=[];clickup={allTasks:vi.fn(async()=>tasks),create:vi.fn(async()=>({id:"task-1"})),update:vi.fn(async()=>{})};});
 afterEach(async()=>{await store.engine.close();});
@@ -51,4 +52,13 @@ it("runs end-to-end, retains checkpoints on failure and refreshes known returns"
   await synchronize(store.db,{get:getChanged,clickup});expect(clickup.create).toHaveBeenCalledTimes(1);
   expect(getChanged).toHaveBeenCalledWith("/post-purchase/v2/claims/55/returns");
   expect((await store.sql.query("SELECT status FROM ml_integration.sync_runs ORDER BY id")).rows.map(r=>r.status)).toEqual(["success","failed","success"]);
+});
+
+it("preserves the ML operation and safe reason when a per-return lookup fails",async()=>{
+  await saveTokens(store.db,{access_token:"test",refresh_token:"test",user_id:"42",expires_in:3600});
+  const failure=new ApiError("ML",400,{operation:"claim_returns",reason:"return_not_available"});
+  const get=vi.fn(async(path:string)=>{if(path.includes("/search?"))return {paging:{offset:0,limit:50,total:1},data:[{id:55,type:"return"}]};throw failure;});
+  await expect(synchronize(store.db,{get,clickup})).rejects.toBe(failure);
+  expect((await store.sql.query("SELECT checkpoint FROM ml_integration.ml_account")).rows[0].checkpoint).toBeNull();
+  expect(clickup.create).not.toHaveBeenCalled();
 });

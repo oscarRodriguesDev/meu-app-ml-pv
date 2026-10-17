@@ -2,6 +2,7 @@ import { config } from "./config";
 import { isAdmin, isCron } from "./auth";
 import { BusyError, withLock } from "./db";
 import { errorCode, synchronize } from "./sync";
+import { syncFailureDiagnostic } from "./diagnostics";
 export async function syncHandler(req: Request, cron: boolean) {
   try {
     const c = config();
@@ -11,7 +12,8 @@ export async function syncHandler(req: Request, cron: boolean) {
     if (error instanceof BusyError) return Response.json({ status: "skipped", reason: "SYNC_BUSY" });
     const code = errorCode(error);
     // No upstream body, authorization headers, OAuth codes, or tokens in logs.
-    console.error(JSON.stringify({ event: "sync_failed", code }));
-    return Response.json({ error: code }, { status: 503 });
+    const diagnostic = syncFailureDiagnostic(error);
+    console.error(JSON.stringify({ event: "sync_failed", code, ...diagnostic }));
+    return Response.json({ error: code, ...diagnostic }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }

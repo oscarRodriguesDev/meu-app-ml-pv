@@ -93,12 +93,17 @@ Em uma atualização da versão antiga com conexão PostgreSQL de sessão, desat
 | `GET /api/oauth/start` | Admin | Inicia OAuth/PKCE. |
 | `GET /api/oauth/callback` | Estado + cookie | Retorno OAuth. |
 | `GET /api/status` | Admin | Conexão, últimas 20 execuções e intenções incertas, sem tokens. |
+| `GET /api/diagnostics/ml` | Admin | Três consultas de verificação de filtros, datas e ordenação, sem criar tarefas ou avançar o checkpoint. |
 | `POST /api/sync` | Admin | Sincronização manual. |
 | `GET /api/cron/sync` | Bearer `CRON_SECRET` | Sincronização agendada. |
 
 Admin aceita HTTP Basic `admin:ADMIN_SECRET` ou Bearer `ADMIN_SECRET`. Não passe segredos na URL. Falhas de sincronização retornam 503 com código sanitizado; concorrência retorna 200/skipped. Monitoramento funcional deve verificar `/api/status`, não apenas `/api/health`.
 
 Para `OAUTH_START_FAILED`, consulte `cause`, `action` e `issues` na resposta e o evento `oauth_start_failed` nos logs da Vercel. `issues` contém apenas nomes de variáveis e sua condição, sem valores. O início do OAuth valida somente as configurações necessárias a esse fluxo; ClickUp e cron são validados na sincronização. Veja [o diagnóstico de configuração](docs/SUPABASE.md#diagnosticar-falha-antes-de-abrir-o-mercado-livre).
+
+Para `ML_HTTP_400`, a resposta e o log `sync_failed` incluem a operação (`claims_search`, `claim_detail` ou `claim_returns`) e, quando reconhecida, uma categoria fixa como `date_range`, `seller_filter`, `sort` ou `pagination`. Mensagens brutas, IDs de recursos e parâmetros da URL não são registrados. O corpo de erro do Mercado Livre é lido com limite de 8 KB apenas para classificar a falha e é descartado. A busca envia milissegundos e offset UTC explícito (`+00:00`), preservando o período completo e codificando o sinal `+` na query.
+
+Abra `/api/diagnostics/ml` no navegador e autentique como administrador para testar, separadamente, filtro do vendedor, intervalo de datas e ordenação/paginação. O diagnóstico pode renovar o token sob o mesmo bloqueio, mas não cria tarefas, não altera o checkpoint e não retorna dados de compradores. Se todas as verificações passarem, execute novamente a sincronização; uma falha em consulta de detalhes/devoluções aparecerá com sua própria operação.
 
 `ML_NOT_CONNECTED` e `ML_REAUTH_REQUIRED` pedem conexão/reconexão. `SUPABASE_HTTP_404` geralmente indica instalação SQL ou cache da Data API pendente; `supabase/install.sql` notifica a recarga do schema. 401/403 pedem conferir chave, permissões e configuração da API. `SYNC_LOCK_LOST` interrompe gravações de uma execução sem bloqueio válido.
 
@@ -127,4 +132,4 @@ TEST_DATABASE_URL=postgresql://postgres:senha@localhost:5432/ml_clickup_test npm
 
 `npm run db:bundle` regenera `supabase/install.sql` a partir de `db/`. `npm run db:migrate` permanece como ferramenta opcional para operadores com conexão PostgreSQL direta (`DATABASE_URL` e, se necessário, `DATABASE_SSL_CA`); essas variáveis não fazem parte da configuração do serviço por HTTPS. As tabelas e vínculos anteriores são preservados pelas migrações 002/003. O Compose local também é opcional, destinado aos testes/CLI, e não substitui a API Supabase usada em produção.
 
-Referências: [Mercado Livre OAuth](https://developers.mercadolivre.com.br/pt_br/autenticacao-e-autorizacao?nocache=true), [devoluções](https://developers.mercadolivre.com.br/pt_br/relatorios-de-faturamento/gerenciar-devolucoes), [ClickUp](https://developer.clickup.com/reference/gettasks), [chaves Supabase](https://supabase.com/docs/guides/getting-started/api-keys), [funções SQL](https://supabase.com/docs/guides/database/functions).
+Referências: [busca de reclamações e parâmetros](https://developers.mercadolivre.com.br/pt_br/atributos/gerenciar-reclamacoes), [Mercado Livre OAuth](https://developers.mercadolivre.com.br/pt_br/autenticacao-e-autorizacao?nocache=true), [devoluções](https://developers.mercadolivre.com.br/pt_br/relatorios-de-faturamento/gerenciar-devolucoes), [ClickUp](https://developer.clickup.com/reference/gettasks), [chaves Supabase](https://supabase.com/docs/guides/getting-started/api-keys), [funções SQL](https://supabase.com/docs/guides/database/functions).

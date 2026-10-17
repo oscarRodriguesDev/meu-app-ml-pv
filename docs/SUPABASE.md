@@ -80,6 +80,20 @@ Confira as variáveis na Vercel em **Settings → Environment Variables → Prod
 
 Com a configuração válida, o endpoint pede HTTP Basic (`admin` e `ADMIN_SECRET`) e só depois grava o estado OAuth e redireciona ao Mercado Livre. A autorização e a troca do código ainda exigem que o callback esteja cadastrado na aplicação Mercado Livre.
 
+## Diagnosticar `ML_HTTP_400` após a conexão
+
+Esse código significa que o Mercado Livre recusou uma consulta HTTP com status 400. O código isolado não revela qual consulta ou parâmetro foi rejeitado. A sincronização agora preserva essa informação mesmo quando a falha ocorre em uma devolução individual.
+
+Acesse [o diagnóstico do aplicativo publicado](https://meu-app-ml-pv-rosy.vercel.app/api/diagnostics/ml), usando usuário `admin` e `ADMIN_SECRET` como senha. São feitas três consultas limitadas, sem criar tarefas nem avançar o checkpoint:
+
+1. `seller_filter`: somente vendedor respondente e paginação mínima.
+2. `date_range`: adiciona o mesmo intervalo usado na sincronização.
+3. `sort_and_page`: usa os parâmetros completos, incluindo ordenação e tamanho de página.
+
+A resposta informa `ok` ou o código de erro de cada verificação. Os logs `sync_failed` passam a indicar `operation` e, quando reconhecida, uma categoria fixa `reason`, sem copiar mensagens brutas ou IDs do Mercado Livre. O formato das datas foi alinhado aos exemplos documentados: milissegundos e offset explícito (`.000+00:00`), com o `+` codificado na URL. O período e os filtros não são reduzidos automaticamente para contornar erros.
+
+Se as três consultas passarem, tente a sincronização novamente e consulte a operação de qualquer falha posterior (`claim_detail` ou `claim_returns`). Não ative o agendamento antes de confirmar a primeira sincronização bem-sucedida.
+
 ## 4. Cron de 15 minutos pelo Supabase
 
 Após instalar a estrutura, publicar o Next.js e conectar o vendedor:

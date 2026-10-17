@@ -22,3 +22,17 @@ export function oauthStartDiagnostic(error: unknown) {
         : "Consulte os logs da Vercel pelo evento oauth_start_failed. Não compartilhe senhas, chaves ou tokens.";
   return { cause, action };
 }
+
+export function syncFailureDiagnostic(error: unknown) {
+  if (error instanceof ConfigurationError) {
+    return { issues: error.issues, action: "Corrija as variáveis indicadas na Vercel em Production e publique um novo deploy." };
+  }
+  if (!(error instanceof ApiError) || error.service !== "ML") return {};
+  const details = error.details ?? { operation: "mercado_api" as const };
+  const action = error.status === 400
+    ? "Abra /api/diagnostics/ml com a autenticação administrativa para verificar os filtros da busca. Consulte operation e reason no log sync_failed."
+    : error.status === 403
+      ? "Confira as permissões de pós-venda/reclamações da aplicação Mercado Livre."
+      : "Confira o diagnóstico da consulta ao Mercado Livre no log sync_failed.";
+  return { ...details, action };
+}

@@ -44,16 +44,16 @@ export async function synchronize(db: DB, dependencies?: { get: MLGet; clickup: 
     // Shipment/return updates can occur without updating the claim timestamp.
     const known = await db.call<string[]>("known_claims", { seller_id: seller.seller_id, list_id: c.CLICKUP_LIST_ID });
     for (const claim of known) candidates.add(claim);
-    const tasks = await clickup.allTasks(); const seen = new Set<string>(); const failures: string[] = [];
+    const tasks = await clickup.allTasks(); const seen = new Set<string>(); const failures: unknown[] = [];
     for (const claim of candidates) {
       try {
         const value = returnSchema.parse(await get(`/post-purchase/v2/claims/${claim}/returns`));
         if (seen.has(value.id)) continue;
         await upsertReturn(db, clickup, tasks, seller.seller_id, c.CLICKUP_LIST_ID, claim, value);
         seen.add(value.id); processed++;
-      } catch (error) { failures.push(errorCode(error)); }
+      } catch (error) { failures.push(error); }
     }
-    if (failures.length) throw new Error(failures[0]);
+    if (failures.length) throw failures[0];
     await db.call("checkpoint_save", { checkpoint: until.toISOString() });
     await db.call("run_finish", { id: run, status: "success", processed });
     return { status: "success", processed };

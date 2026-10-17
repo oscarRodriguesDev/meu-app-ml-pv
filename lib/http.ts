@@ -1,9 +1,10 @@
+import { mlFailureDetails, type MLFailureDetails } from "./ml-errors";
 import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy) {
   setGlobalDispatcher(new EnvHttpProxyAgent());
 }
 export class ApiError extends Error {
-  constructor(public service: string, public status: number) { super(`${service}_HTTP_${status}`); }
+  constructor(public service: string, public status: number, public details?: MLFailureDetails) { super(`${service}_HTTP_${status}`); }
 }
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // Only GET/PUT are retryable. OAuth and task creation must never be blindly replayed.
@@ -23,7 +24,11 @@ export async function request(service: string, url: string, init: RequestInit = 
       await delay(Math.min(5000, Math.max(300 * 2 ** attempt, Number.isFinite(retry) ? retry * 1000 : 0)));
       continue;
     }
-    if (!response.ok) { await response.body?.cancel(); throw new ApiError(service, response.status); }
+    if (!response.ok) {
+      const details = service === "ML" ? await mlFailureDetails(url, response) : undefined;
+      if (service !== "ML") await response.body?.cancel();
+      throw new ApiError(service, response.status, details);
+    }
     try { return await response.json() as unknown; }
     catch { throw new Error(`${service}_INVALID_JSON`); }
   }
