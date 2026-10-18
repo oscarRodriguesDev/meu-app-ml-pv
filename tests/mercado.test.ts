@@ -1,3 +1,4 @@
+import { ApiError } from "../lib/http";
 import { it, expect, vi } from "vitest";
 import { discoverClaims, returnClaimIds, returnSchema } from "../lib/mercado";
 const from=new Date("2026-01-01T00:00:00.000Z"),until=new Date("2026-01-02T00:00:00.000Z");
@@ -38,4 +39,23 @@ it("propagates a failed closed search instead of returning only opened claims",a
   if(new URL(path,"https://example.com").searchParams.get("status")==="closed") throw new Error("ML_HTTP_400");
   return {paging:{offset:0,limit:50,total:1},data:[{id:1,type:"return"}]};
  },"42",from,until)).rejects.toThrow("ML_HTTP_400");
+});
+
+it("recognizes historical plural returns without fetching a claim detail",async()=>{
+ const get=vi.fn();
+ expect(await returnClaimIds(get,[{id:"1",type:"returns"},{id:"2",related_entities:["returns"]}])).toEqual(["1","2"]);
+ expect(get).not.toHaveBeenCalled();
+});
+it("keeps a claim with unavailable detail as a candidate for the return endpoint",async()=>{
+ const get=vi.fn(async()=>{throw new ApiError("ML",404,{operation:"claim_detail"});});
+ expect(await returnClaimIds(get,[{id:"1",type:"mediations"},{id:"2",type:"return"}])).toEqual(["1","2"]);
+ expect(get).toHaveBeenCalledTimes(1);
+});
+it("does not treat permissions, outages or another service's 404 as missing claim detail",async()=>{
+ for(const error of [new ApiError("ML",403),new ApiError("ML",500),new ApiError("SUPABASE",404)]) {
+  await expect(returnClaimIds(async()=>{throw error;},[{id:"1"}])).rejects.toBe(error);
+ }
+});
+it("rejects mismatched detail IDs instead of syncing another claim",async()=>{
+ await expect(returnClaimIds(async()=>({id:2,type:"return"}),[{id:"1"}])).rejects.toThrow("ML_CLAIM_ID_MISMATCH");
 });

@@ -31,6 +31,8 @@ export function syncFailureDiagnostic(error: unknown) {
   const details = error.details ?? { operation: "mercado_api" as const };
   const action = error.status === 400
     ? "Abra /api/diagnostics/ml com a autenticação administrativa para verificar os filtros da busca. Consulte operation e reason no log sync_failed."
+    : error.status === 404 && details.operation === "claim_returns"
+      ? "A reclamação foi localizada, mas a consulta da devolução retornou 404. O checkpoint foi preservado para nova tentativa; confira a disponibilidade do recurso no Mercado Livre."
     : error.status === 403
       ? "Confira as permissões de pós-venda/reclamações da aplicação Mercado Livre."
       : "Confira o diagnóstico da consulta ao Mercado Livre no log sync_failed.";

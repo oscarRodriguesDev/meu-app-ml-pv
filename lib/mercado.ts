@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ApiError } from "./http";
 export const idSchema = z.union([z.string().regex(/^\d+$/), z.number().int().safe().nonnegative().transform(String)]);
 export const claimSchema = z.object({ id: idSchema, type: z.string().optional(), related_entities: z.array(z.string()).optional() });
 export const returnSchema = z.object({
@@ -48,8 +49,21 @@ export async function discoverClaims(get: MLGet, seller: string, from: Date, unt
 export async function returnClaimIds(get: MLGet, claims: z.infer<typeof claimSchema>[]) {
   const result: string[] = [];
   for (let claim of claims) {
-    if (!claim.related_entities && claim.type !== "return") claim = claimSchema.parse(await get(`/post-purchase/v1/claims/${claim.id}`));
-    if (claim.type === "return" || claim.related_entities?.includes("return")) result.push(claim.id);
+    const isReturn = (value: typeof claim) => value.type === "return" || value.type === "returns" || value.related_entities?.some(entity => entity === "return" || entity === "returns");
+    if (!claim.related_entities && !isReturn(claim)) {
+      const originalId = claim.id;
+      try {
+        claim = claimSchema.parse(await get(`/post-purchase/v1/claims/${originalId}`));
+        if (claim.id !== originalId) throw new Error("ML_CLAIM_ID_MISMATCH");
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.service !== "ML" || error.status !== 404) throw error;
+        // A missing claim detail does not establish that its return is missing.
+        // Probe the return endpoint during synchronization; failures there remain fatal.
+        result.push(originalId);
+        continue;
+      }
+    }
+    if (isReturn(claim)) result.push(claim.id);
   }
   return result;
 }

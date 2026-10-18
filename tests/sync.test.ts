@@ -62,3 +62,28 @@ it("preserves the ML operation and safe reason when a per-return lookup fails",a
   expect((await store.sql.query("SELECT checkpoint FROM ml_integration.ml_account")).rows[0].checkpoint).toBeNull();
   expect(clickup.create).not.toHaveBeenCalled();
 });
+
+it("syncs a return directly when its claim detail is unavailable",async()=>{
+ await saveTokens(store.db,{access_token:"test",refresh_token:"test",user_id:"42",expires_in:3600});
+ const get=vi.fn(async(path:string)=>{
+  if(path.includes("/search?")) return {paging:{offset:0,limit:50,total:1},data:[{id:55,type:"mediations"}]};
+  if(path==="/post-purchase/v1/claims/55") throw new ApiError("ML",404,{operation:"claim_detail"});
+  if(path==="/post-purchase/v2/claims/55/returns") return sampleReturn;
+  throw new Error("Unexpected request");
+ });
+ expect(await synchronize(store.db,{get,clickup})).toEqual({status:"success",processed:1});
+ expect(clickup.create).toHaveBeenCalledTimes(1);
+ expect((await store.sql.query("SELECT checkpoint FROM ml_integration.ml_account")).rows[0].checkpoint).not.toBeNull();
+});
+it("retains the checkpoint if both claim detail and return are unavailable",async()=>{
+ await saveTokens(store.db,{access_token:"test",refresh_token:"test",user_id:"42",expires_in:3600});
+ const failure=new ApiError("ML",404,{operation:"claim_returns"});
+ const get=vi.fn(async(path:string)=>{
+  if(path.includes("/search?")) return {paging:{offset:0,limit:50,total:1},data:[{id:55,type:"mediations"}]};
+  if(path==="/post-purchase/v1/claims/55") throw new ApiError("ML",404,{operation:"claim_detail"});
+  throw failure;
+ });
+ await expect(synchronize(store.db,{get,clickup})).rejects.toBe(failure);
+ expect(clickup.create).not.toHaveBeenCalled();
+ expect((await store.sql.query("SELECT checkpoint FROM ml_integration.ml_account")).rows[0].checkpoint).toBeNull();
+});
