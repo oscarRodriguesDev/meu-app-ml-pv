@@ -1,7 +1,8 @@
 export type MLFailureDetails = {
   operation: "claims_search" | "claim_detail" | "claim_returns" | "mercado_api";
-  upstreamCode?: "bad_request" | "invalid_request" | "validation_error" | "invalid_parameter" | "invalid_query" | "invalid_params" | "forbidden" | "not_found" | "unauthorized";
-  reason?: "date_range" | "seller_filter" | "sort" | "pagination" | "permissions" | "query_parameters" | "return_not_available";
+  upstreamCode?: "bad_request" | "invalid_request" | "validation_error" | "invalid_parameter" | "invalid_query" | "invalid_params" | "forbidden" | "not_found" | "unauthorized" | "PA_UNAUTHORIZED_RESULT_FROM_POLICIES";
+  blockedBy?: "PolicyAgent";
+  reason?: "date_range" | "seller_filter" | "sort" | "pagination" | "permissions" | "policy_block" | "query_parameters" | "return_not_available";
 };
 
 /** Never retain an upstream message, query, resource ID, token or response body. */
@@ -28,7 +29,7 @@ export async function mlFailureDetails(url: string, response: Response, onValida
     const root = body as Record<string, unknown>;
     const entries = [root, ...(Array.isArray(root.cause) ? root.cause.slice(0, 10) : [])];
     const messages: string[] = [];
-    const known = new Set(["bad_request", "invalid_request", "validation_error", "invalid_parameter", "invalid_query", "invalid_params", "forbidden", "not_found", "unauthorized"]);
+    const known = new Set(["bad_request", "invalid_request", "validation_error", "invalid_parameter", "invalid_query", "invalid_params", "forbidden", "not_found", "unauthorized", "PA_UNAUTHORIZED_RESULT_FROM_POLICIES"]);
     for (const entry of entries) {
       if (!entry || typeof entry !== "object") continue;
       const value = entry as Record<string, unknown>;
@@ -37,10 +38,11 @@ export async function mlFailureDetails(url: string, response: Response, onValida
       }
       if (typeof value.message === "string") messages.push(value.message);
     }
+    if (root.blocked_by === "PolicyAgent") result.blockedBy = "PolicyAgent";
     const text = messages.join(" ");
     // Only the administrator's explicit diagnostic request receives validation text.
     // Never retain error bodies or include this text in normal sync logs.
-    if (response.status === 400 && result.operation === "claims_search" && onValidation) {
+    if (onValidation && (response.status === 403 || (response.status === 400 && result.operation === "claims_search"))) {
       let safe = text;
       for (const value of sensitiveValues) { if (value) safe = safe.split(value).join("[oculto]"); }
       const parsed = new URL(url);
@@ -51,7 +53,8 @@ export async function mlFailureDetails(url: string, response: Response, onValida
       onValidation(safe.slice(0, 1000));
     }
     // Classify into fixed labels only. Unrecognized text is deliberately discarded.
-    if (/\b(date|dates|timestamp|timezone|range|fecha|milliseconds|milissegundos)\b/i.test(text)) result.reason = "date_range";
+    if (result.upstreamCode === "PA_UNAUTHORIZED_RESULT_FROM_POLICIES" || result.blockedBy === "PolicyAgent") result.reason = "policy_block";
+    else if (/\b(date|dates|timestamp|timezone|range|fecha|milliseconds|milissegundos)\b/i.test(text)) result.reason = "date_range";
     else if (/players\.(user_id|role)|\b(seller|respondent|complainant)\b/i.test(text)) result.reason = "seller_filter";
     else if (/\b(sort|order_by|ordering)\b/i.test(text)) result.reason = "sort";
     else if (/\b(offset|limit|page|paging|pagination|10000)\b/i.test(text)) result.reason = "pagination";

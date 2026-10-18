@@ -10,7 +10,7 @@ export async function diagnoseClaimsSearch(get: MLGet, seller: string, from: Dat
     if (idSchema.parse(identity.id) !== seller) throw new Error("ML_SELLER_MISMATCH");
     checks.push({ check: "account_identity", ok: true });
   } catch (error) {
-    checks.push({ check: "account_identity", ok: false, error: errorCode(error), ...syncFailureDiagnostic(error) });
+    checks.push({ check: "account_identity", ok: false, error: errorCode(error), ...syncFailureDiagnostic(error), ...(error instanceof ApiError && error.validationMessage ? { validationMessage: error.validationMessage } : {}) });
     return { status: "failed", checks };
   }
   const probes: [string, URLSearchParams][] = [];

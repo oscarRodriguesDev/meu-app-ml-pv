@@ -34,7 +34,9 @@ export function syncFailureDiagnostic(error: unknown) {
     : error.status === 404 && details.operation === "claim_returns"
       ? "A reclamação foi localizada, mas a consulta da devolução retornou 404. O checkpoint foi preservado para nova tentativa; confira a disponibilidade do recurso no Mercado Livre."
     : error.status === 403
-      ? "Confira as permissões de pós-venda/reclamações da aplicação Mercado Livre."
+      ? details.reason === "policy_block"
+        ? "O PolicyAgent do Mercado Livre bloqueou a consulta. Confira as permissões efetivas da aplicação e a autorização do vendedor; se já atualizadas, encaminhe o código do bloqueio ao suporte de integrações."
+        : "O Mercado Livre recusou acesso ao recurso. Consulte upstreamCode, blockedBy e validationMessage em /api/diagnostics/ml antes de alterar novamente as permissões."
       : "Confira o diagnóstico da consulta ao Mercado Livre no log sync_failed.";
   return { ...details, action };
 }

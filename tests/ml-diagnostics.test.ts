@@ -69,3 +69,29 @@ it("diagnoses the production queries with an explicit state on every search",asy
  },"42",new Date("2026-01-01"),new Date("2026-01-02"));
  expect(result.status).toBe("ok");expect(result.checks).toHaveLength(7);
 });
+
+it("identifies a policy denial without exposing tokens and keeps validation out of logs",async()=>{
+ const token="APP_USR-123-secret";
+ const fetchMock=vi.fn().mockImplementation(()=>Promise.resolve(Response.json({code:"PA_UNAUTHORIZED_RESULT_FROM_POLICIES",blocked_by:"PolicyAgent",message:`At least one policy returned UNAUTHORIZED. ${token} seller=484112848 admin@example.com`},{status:403})));
+ vi.stubGlobal("fetch",fetchMock);
+ let failure:unknown;
+ try {await request("ML","https://api.mercadolibre.com/post-purchase/v1/claims/search?players.user_id=484112848",{headers:{Authorization:`Bearer ${token}`}},true);}catch(error){failure=error;}
+ const error=failure as ApiError;
+ expect(error.details).toMatchObject({operation:"claims_search",upstreamCode:"PA_UNAUTHORIZED_RESULT_FROM_POLICIES",blockedBy:"PolicyAgent",reason:"policy_block"});
+ expect(error.validationMessage).toContain("At least one policy returned UNAUTHORIZED");
+ for(const secret of [token,"484112848","admin@example.com"]) expect(error.validationMessage).not.toContain(secret);
+ expect(JSON.stringify(syncFailureDiagnostic(error))).not.toContain("At least one policy");
+ expect(JSON.stringify(error)).not.toContain("At least one policy");expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+it("includes a redacted 403 explanation when the identity endpoint itself is blocked",async()=>{
+ vi.stubGlobal("fetch",vi.fn().mockImplementation(()=>Promise.resolve(Response.json({error:"forbidden",message:"Access denied for this application"},{status:403}))));
+ const result=await diagnoseClaimsSearch(path=>request("ML",`https://api.mercadolibre.com${path}`,{},true),"42",new Date("2026-01-01"),new Date("2026-01-02"));
+ expect(result.checks[0]).toMatchObject({check:"account_identity",ok:false,validationMessage:"Access denied for this application"});
+});
+it("does not retain upstream 403 explanations during normal synchronization",async()=>{
+ vi.stubGlobal("fetch",vi.fn().mockImplementation(()=>Promise.resolve(Response.json({error:"forbidden",message:"Access denied private message"},{status:403}))));
+ try {await request("ML","https://api.mercadolibre.com/post-purchase/v1/claims/123");}catch(error){
+  expect((error as ApiError).validationMessage).toBeUndefined();
+  expect((error as ApiError).details).toMatchObject({operation:"claim_detail",reason:"permissions"});
+ }
+});
